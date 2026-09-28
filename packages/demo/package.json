@@ -1,0 +1,20 @@
+{
+  "name": "ldk-ws-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build -w ldk-ws-descriptor && vite",
+    "build": "npm run build -w ldk-ws-descriptor && vite build",
+    "preview": "vite preview"
+  },
+  "license": "MIT OR Apache-2.0",
+  "dependencies": {
+    "ldk-ws-descriptor": "^0.1.0",
+    "lightningdevkit": "0.2.5-0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vite": "^5.4.0"
+  }
+}

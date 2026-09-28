@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>LDK in a browser tab</title>
+		<link rel="stylesheet" href="./src/style.css" />
+	</head>
+	<body>
+		<main>
+			<h1>A Lightning node in a browser tab</h1>
+			<p class="sub">
+				LDK's <code>PeerManager</code> running in WASM, reaching a real Lightning peer through a
+				<code>SocketDescriptor</code> backed by a WebSocket. Regtest only.
+			</p>
+
+			<section class="card">
+				<div class="row">
+					<label>Our node id</label>
+					<output id="our-node-id">loading WASM…</output>
+				</div>
+			</section>
+
+			<section class="card">
+				<div class="grid">
+					<label for="proxy">Proxy base URL</label>
+					<input id="proxy" value="ws://127.0.0.1:3001" />
+
+					<label for="host">Peer host</label>
+					<input id="host" value="127.0.0.1" />
+
+					<label for="port">Peer port</label>
+					<input id="port" value="9735" />
+
+					<label for="pubkey">Peer node id</label>
+					<input id="pubkey" placeholder="03abc… (66 hex chars)" />
+				</div>
+				<div class="actions">
+					<label class="direct"><input type="checkbox" id="direct" /> connect directly (peer speaks WebSocket)</label>
+					<button id="connect" disabled>Connect</button>
+					<button id="disconnect" disabled>Disconnect</button>
+				</div>
+			</section>
+
+			<section class="card">
+				<h2>Peers</h2>
+				<ul id="peers"><li class="empty">none</li></ul>
+			</section>
+
+			<section class="card">
+				<h2>Log</h2>
+				<pre id="log"></pre>
+			</section>
+		</main>
+		<script type="module" src="./src/main.ts"></script>
+	</body>
+</html>
