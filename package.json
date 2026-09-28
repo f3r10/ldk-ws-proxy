@@ -1,0 +1,20 @@
+{
+  "name": "ldk-ws-descriptor-workspace",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/descriptor",
+    "packages/proxy",
+    "packages/demo"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test -w ldk-ws-descriptor",
+    "proxy": "npm run start -w ldk-ws-proxy",
+    "demo": "npm run dev -w ldk-ws-demo"
+  },
+  "license": "MIT OR Apache-2.0",
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  }
+}
