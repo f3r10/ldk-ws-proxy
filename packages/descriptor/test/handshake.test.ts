@@ -95,12 +95,15 @@ if (peers.length == 1) {
 }
 
 // --- a disallowed target is refused --------------------------------------------------------
+// Note the shape of this failure: the WebSocket opens (the proxy has to accept it to read
+// the path), so connect_peer resolves and the refusal arrives as an immediate close.
 const bad_url = proxy_url("ws://127.0.0.1:" + proxy.port, "127.0.0.1", peer_port + 1);
 const bad_conn = await net.connect_peer(bad_url, peer.node_id);
 check(
 	await wait_for("the refused connection to close", () => !bad_conn.is_connected, 5_000),
 	"proxy refuses a target outside the allowlist",
 );
+check(bad_conn.close_code == 1008, "refusal arrives as close code 1008, not a connect error");
 check(client.peer_manager.list_peers().length == 1, "the refused connection left the good peer alone");
 
 // --- clean disconnect -----------------------------------------------------------------------

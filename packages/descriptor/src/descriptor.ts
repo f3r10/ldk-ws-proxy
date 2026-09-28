@@ -69,6 +69,15 @@ export class WsConnection {
 	private write_blocked = false;
 	private drain_timer: ReturnType<typeof setInterval> | undefined;
 	private disconnected = false;
+	/**
+	 * WebSocket close code, once closed.
+	 *
+	 * Worth surfacing: a proxy that refuses your target still completes the WebSocket
+	 * handshake and then closes with 1008, so a misconfigured allowlist looks like a
+	 * successful connect followed immediately by a disconnect, not a connect failure.
+	 */
+	public close_code: number | undefined;
+	public close_reason: string | undefined;
 
 	constructor(
 		private readonly net: WsLdkNet,
@@ -110,7 +119,11 @@ export class WsConnection {
 			this.inbound.push(bytes);
 			this.pump();
 		};
-		ws.onclose = () => this.on_closed("close");
+		ws.onclose = (ev: any) => {
+			this.close_code = ev?.code;
+			this.close_reason = ev?.reason;
+			this.on_closed("close" + (ev?.code === undefined ? "" : " (code " + ev.code + ")"));
+		};
 		ws.onerror = () => this.on_closed("error");
 	}
 
