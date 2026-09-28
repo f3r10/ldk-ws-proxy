@@ -13,7 +13,9 @@
   },
   "files": ["dist", "README.md"],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "npm run build -w ldk-ws-proxy && tsc -p tsconfig.json && node dist/test/handshake.test.js",
+    "peer": "tsc -p tsconfig.json && node dist/test/local_peer.js"
   },
   "keywords": ["lightning", "bitcoin", "ldk", "websocket", "browser"],
   "license": "MIT OR Apache-2.0",
@@ -22,6 +24,10 @@
   },
   "devDependencies": {
     "lightningdevkit": "0.2.5-0",
+    "lightningdevkit-node-net": "0.2.5-0",
+    "ldk-ws-proxy": "^0.1.0",
+    "ws": "^8.18.0",
+    "@types/ws": "^8.5.12",
     "@types/node": "^22.7.0",
     "typescript": "^5.6.0"
   }
