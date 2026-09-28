@@ -1,0 +1,28 @@
+{
+  "name": "ldk-ws-descriptor",
+  "version": "0.1.0",
+  "description": "An LDK SocketDescriptor backed by a WebSocket, so a Lightning node can run in a browser tab",
+  "type": "module",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    }
+  },
+  "files": ["dist", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "keywords": ["lightning", "bitcoin", "ldk", "websocket", "browser"],
+  "license": "MIT OR Apache-2.0",
+  "peerDependencies": {
+    "lightningdevkit": "0.2.5-0"
+  },
+  "devDependencies": {
+    "lightningdevkit": "0.2.5-0",
+    "@types/node": "^22.7.0",
+    "typescript": "^5.6.0"
+  }
+}
