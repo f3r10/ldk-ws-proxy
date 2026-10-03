@@ -118,7 +118,47 @@ evaluated there.
 for a demo, and worth a line in any writeup about whether this is viable for real users on
 mobile connections.
 
-## 14. `tsc` output paths and `package.json` main
+## 14. An out-of-sync LND accepts your connection and then drops it
+
+Found on 2026-10-03, pointing the demo at a Polar LND node for the first time. The browser log
+said "Finished noise handshake" and "Enqueueing message Init", and then nothing: no peer, no
+error, and 55 seconds later a disconnect. LND's log showed only its access-control manager
+granting a slot - no `PEER:` lines at all.
+
+The cause was not the transport. LND's regtest chain was weeks stale, so `getinfo` reported
+`synced_to_chain: false` (LND judges this from the best block's *timestamp*, so a regtest
+network that has not mined recently is permanently "syncing"), and it never started the peer.
+Mining a block fixes it instantly:
+
+```sh
+docker exec polar-n1-backend1 bitcoin-cli -regtest -rpcuser=polaruser -rpcpassword=polarpass \
+  generatetoaddress 6 "$(docker exec polar-n1-backend1 bitcoin-cli -regtest -rpcuser=polaruser -rpcpassword=polarpass getnewaddress)"
+```
+
+Worth knowing because every symptom points at your own handshake code.
+
+(Also: `lncli` inside a Polar container needs `--lnddir=/home/lnd/.lnd`, since `docker exec`
+runs as root and the default `/root/.lnd` is empty.)
+
+## 15. `ErroringMessageHandler`'s feature bits really are enough for LND
+
+Confirmed against LND 0.20.0-beta, which requires `data-loss-protect`, `tlv-onion`,
+`static-remote-key`, `payment-addr` and `amp`. The `init` we send advertises
+`VariableLengthOnion`, `StaticRemoteKey`, `PaymentSecret` and `BasicMPP` among others, and
+LND's `init` came back with `DataLossProtect: required, VariableLengthOnion: required,
+StaticRemoteKey: required, PaymentSecret: required` - accepted, and the connection stayed up
+with ping/pong every 10s. So a `PeerManager` with no channel machinery at all is a legitimate
+peer as far as a real node is concerned.
+
+## 16. An 'error' event with no listener takes the process down
+
+The proxy crashed with an unhandled `EADDRINUSE` instead of rejecting its start promise, even
+though `server.on("error", reject)` was in place. `ws` re-emits the HTTP server's errors on
+the `WebSocketServer`, which had no listener, and an unhandled 'error' event throws. Both
+emitters need a handler; the fix also distinguishes "failed to start" (reject) from "failed
+later" (log), since after `listen` there is no promise left to reject.
+
+## 17. `tsc` output paths and `package.json` main
 
 With `rootDir: "."` and both `src` and `test` in `include`, output lands at `dist/src/...`.
 Vite fails with "Failed to resolve entry for package" until `main`/`exports` match. Obvious in

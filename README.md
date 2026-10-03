@@ -53,7 +53,12 @@ With [Polar](https://lightningpolar.com), start a regtest network and read the n
 and listening address from its info panel.
 
 - **LND**: keep the proxy. Set the peer host/port to the node's P2P address and allow it:
-  `LDK_WS_PROXY_ALLOW="127.0.0.1:9735"`.
+  `LDK_WS_PROXY_ALLOW="127.0.0.1:9735"`. Verified against LND 0.20.0-beta: the tab shows up in
+  `lncli listpeers` and stays there.
+  If the connection stalls right after "Finished noise handshake", check
+  `lncli getinfo | grep synced_to_chain` - an LND whose regtest chain has not mined recently
+  considers itself out of sync and never starts the peer. Mine a block and it connects
+  immediately. See [GOTCHAS.md](docs/GOTCHAS.md#14).
 - **Core Lightning**: add `bind-addr=ws:0.0.0.0:9736` to the node's config and skip the proxy
   entirely - tick "connect directly" in the demo and point it at `ws://127.0.0.1:9736`. CLN
   speaks the peer protocol over WebSocket natively.
@@ -120,7 +125,7 @@ WASM BigInt (Chrome 85+, Firefox 78+, Safari 14.1+). The WASM payload is 4.5 MB 
 ## Milestones
 
 - [x] **M1** - WebSocket-to-TCP proxy with an allowlist
-- [x] **M2** - handshake and `init` exchange from a browser tab
+- [x] **M2** - handshake and `init` exchange from a browser tab, against LDK and against LND 0.20
 - [ ] **M3** - real backpressure under load, inbound queue limits, reconnect with backoff
 - [ ] **M4** - Esplora chain sync, IndexedDB persistence, open a channel, settle a payment
 - [ ] **M5** - publish to npm, write it up
