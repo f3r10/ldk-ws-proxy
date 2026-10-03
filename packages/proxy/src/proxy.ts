@@ -146,8 +146,22 @@ export function start_proxy(options: ProxyOptions = {}): Promise<ProxyHandle> {
 	});
 
 	return new Promise<ProxyHandle>((resolve, reject) => {
-		server.on("error", reject);
+		let listening = false;
+		// `ws` re-emits the HTTP server's errors on the WebSocketServer, and an 'error' event
+		// with no listener takes the process down - so a port already in use crashes rather
+		// than rejecting this promise. Both emitters need a handler.
+		const on_error = (err: Error) => {
+			if (!listening) {
+				reject(err);
+				return;
+			}
+			log("server error: " + err.message);
+		};
+		server.on("error", on_error);
+		wss.on("error", on_error);
+
 		server.listen(options.port ?? 3001, options.host ?? "127.0.0.1", () => {
+			listening = true;
 			const addr = server.address();
 			const port = typeof addr === "object" && addr !== null ? addr.port : 0;
 			log("proxy listening on port " + port + ", allowing " + allow.join(", "));
