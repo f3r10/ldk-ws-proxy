@@ -1,4 +1,5 @@
 import * as ldk from "lightningdevkit";
+import { PeerLink, type ReconnectOptions } from "./peer_link.js";
 
 /**
  * The subset of the browser `WebSocket` API this package needs.
@@ -300,6 +301,7 @@ export class WsConnection {
 export class WsLdkNet {
 	private readonly opts: ResolvedOptions;
 	private readonly connections = new Set<WsConnection>();
+	private readonly links = new Set<PeerLink>();
 	private descriptor_count = BigInt(0);
 	private ping_timer: ReturnType<typeof setInterval>;
 
@@ -392,6 +394,19 @@ export class WsLdkNet {
 		}
 	}
 
+	/**
+	 * Opens a connection that reopens itself with exponential backoff whenever it drops.
+	 *
+	 * Returns immediately with a handle whose `state` tracks the transport; use
+	 * `link.wait_connected()` or `await_peer` to wait for something specific. Call
+	 * `link.close()` to stop reconnecting.
+	 */
+	public connect_link(url: string, peer_node_id: Uint8Array, options: ReconnectOptions = {}): PeerLink {
+		const link = new PeerLink(this, url, peer_node_id, options);
+		this.links.add(link);
+		return link;
+	}
+
 	/** Flush queued outbound messages. Call after anything that generates messages. */
 	public process_events(): void {
 		this.peer_manager.process_events();
@@ -400,6 +415,7 @@ export class WsLdkNet {
 	/** Closes every connection and releases this handler's resources. */
 	public stop(): void {
 		clearInterval(this.ping_timer);
+		for (const link of Array.from(this.links)) link.close();
 		for (const conn of Array.from(this.connections)) conn.close();
 		this.peer_manager.disconnect_all_peers();
 	}
