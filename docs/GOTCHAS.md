@@ -158,7 +158,35 @@ the `WebSocketServer`, which had no listener, and an unhandled 'error' event thr
 emitters need a handler; the fix also distinguishes "failed to start" (reject) from "failed
 later" (log), since after `listen` there is no promise left to reject.
 
-## 17. `tsc` output paths and `package.json` main
+## 17. Backpressure is a cycle, not an event
+
+Expected one drain to clear the queue; it takes several. Each resume lets another few KB
+through before `bufferedAmount` crosses the high water mark again, so 20 KB through a 4 KB
+mark is three full block/resume rounds. Anything that assumes `write_buffer_space_avail`
+means "the queue is now empty" is wrong, including the first version of our own test.
+
+## 18. Jitter applied after a ceiling is not bounded by it
+
+Spotted in a 100-second outage run: a backoff capped at 30s produced a 36.3s wait, because
+the ±25% jitter was applied to the already-capped delay. Clamp after jittering, not before.
+Harmless here, embarrassing in anything with a contractual maximum.
+
+## 19. A connection that opens and instantly dies looks like a success
+
+Reconnect backoff keyed off "did the socket open?" never grows when the far end accepts and
+immediately closes - which is exactly what a proxy refusing your target does (gotcha 10). The
+result is a hot reconnect loop against a server that is already saying no. A connection has
+to *last* before it counts: `stable_after_ms`, default 10s.
+
+## 20. A paused reader needs a bounded queue
+
+LDK's read pause exists to stop a peer filling our buffers with messages it will not read the
+responses to. Honouring it over a WebSocket means queueing in JS, and an unbounded queue
+hands that same denial of service straight back - the tab dies instead of the buffer. The
+queue is capped and the connection dropped when a peer pushes past it while paused; hanging
+up is the only backpressure primitive a WebSocket has.
+
+## 21. `tsc` output paths and `package.json` main
 
 With `rootDir: "."` and both `src` and `test` in `include`, output lands at `dist/src/...`.
 Vite fails with "Failed to resolve entry for package" until `main`/`exports` match. Obvious in

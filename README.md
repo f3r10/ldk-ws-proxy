@@ -69,10 +69,21 @@ and listening address from its info panel.
 npm test
 ```
 
-Runs the whole path in one process: an LDK node listening over TCP via LDK's own
-`lightningdevkit-node-net`, the proxy, and a second `PeerManager` driving our WebSocket
-descriptor. It asserts that both sides see each other connected, that a target outside the
-allowlist is refused, and that closing the socket reaches `socket_disconnected` on both ends.
+Three suites, about 40 seconds:
+
+- **handshake** - the whole path in one process: an LDK node listening over TCP via LDK's own
+  `lightningdevkit-node-net`, the proxy, and a second `PeerManager` driving our WebSocket
+  descriptor. Both sides see each other connected, a target outside the allowlist is refused,
+  and closing the socket reaches `socket_disconnected` on both ends.
+- **backpressure** - the water marks, `write_buffer_space_avail`, the read pause and the
+  inbound queue cap, driven with a fake socket whose congestion the test controls.
+- **reconnect** - the proxy is killed under a live connection and restarted; the link backs
+  off and comes back.
+
+```sh
+npm run soak -w ldk-ws-descriptor               # 120s by default
+SOAK_SECONDS=1800 npm run soak -w ldk-ws-descriptor   # the real 30-minute idle test
+```
 
 ## Using the descriptor
 
@@ -82,9 +93,21 @@ import { WsLdkNet, proxy_url } from "ldk-ws-descriptor";
 
 const net = new WsLdkNet(peer_manager);          // holds a 10s timer_tick_occurred
 const url = proxy_url("ws://127.0.0.1:3001", "127.0.0.1", 9735);
-const conn = await net.connect_peer(url, peer_node_id);   // resolves when the socket is open
-await net.await_peer(peer_node_id);              // resolves when the peer is actually connected
+
+// Reopens itself with exponential backoff whenever the socket dies. Use this for anything
+// long-lived; link.state is the transport's state, link.close() stops reconnecting.
+const link = net.connect_link(url, peer_node_id);
+link.on_state = (state, detail) => console.log(state, detail);
+await link.wait_connected();                     // the socket is up
+await net.await_peer(peer_node_id);              // the peer is actually connected
+
+// Or one-shot, if you want to own the retry policy yourself:
+const conn = await net.connect_peer(url, peer_node_id);
 ```
+
+Tuning, all optional: `high_water_mark` / `low_water_mark` (when to stop and resume taking
+bytes), `max_inbound_bytes` (how much to queue while LDK has reads paused before hanging up),
+`timer_tick_ms`, and the backoff settings on `connect_link`.
 
 `connect_peer` resolves once the transport is up and the first handshake bytes are away, which
 is not the same as being connected - a proxy that refuses your target still opens the
@@ -126,13 +149,17 @@ WASM BigInt (Chrome 85+, Firefox 78+, Safari 14.1+). The WASM payload is 4.5 MB 
 
 - [x] **M1** - WebSocket-to-TCP proxy with an allowlist
 - [x] **M2** - handshake and `init` exchange from a browser tab, against LDK and against LND 0.20
-- [ ] **M3** - real backpressure under load, inbound queue limits, reconnect with backoff
+- [x] **M3** - backpressure under load, inbound queue limits, reconnect with backoff
 - [ ] **M4** - Esplora chain sync, IndexedDB persistence, open a channel, settle a payment
 - [ ] **M5** - publish to npm, write it up
 
-M3's machinery (water marks, `write_buffer_space_avail`, the read pause) is implemented but
-has only been exercised at handshake volumes. It is not ticked until something has actually
-pushed enough bytes through it to block.
+What M3 is ticked on: the water marks, `write_buffer_space_avail` and the read pause are
+exercised by tests that actually block and resume them; reconnect is demonstrated by killing
+the proxy under a live connection, in Node and in the browser against LND; and the idle
+question was answered by a real 30-minute soak (zero drops, 15 ping/pong rounds).
+
+M4 is the real unknown. Chain sync, and persisting `ChannelMonitor` state to IndexedDB, in
+beta bindings. That is where the time will go.
 
 ## Prior art
 

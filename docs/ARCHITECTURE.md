@@ -63,7 +63,30 @@ knows about them is a use-after-free.
 **Teardown.** `socket_disconnected` fires exactly once per connection, from `onclose` or
 `onerror`, guarded by a flag.
 
+**Reconnection.** `WsConnection` is one socket and dies with it. `PeerLink` sits above it and
+reopens the socket with exponential backoff (500ms doubling to 30s, 25% jitter) until told to
+stop, which is what makes a tab survivable: a laptop lid, a sleeping radio, a redeployed
+proxy. A connection has to last 10s before it resets the backoff, so a server that accepts and
+immediately closes cannot produce a hot loop. `link.state` describes the transport, not the
+Lightning peer.
+
 The ordering and re-entrancy rules behind these choices are in [GOTCHAS.md](GOTCHAS.md).
+
+## How the hard parts are tested
+
+Three of these behaviours only happen under conditions a loopback handshake never produces, so
+the tests go at them from different directions:
+
+| | How |
+|---|---|
+| Handshake, `init`, disconnect | The real stack: LDK's own `node-net` peer over TCP, the proxy, our descriptor. Nothing of ours on the far side. |
+| Backpressure, read pause, queue cap | A fake WebSocket whose `bufferedAmount` the test controls, and a stand-in `PeerManager` that follows LDK's contract - believe the count, keep the remainder, wait for `write_buffer_space_avail`. The `SocketDescriptor` is real, so calls still cross into WASM. |
+| Reconnect | The real stack, with the proxy killed mid-connection and restarted on the same port. |
+| Idle survival | An opt-in soak (`npm run soak`), run for a real 30 minutes at the real 10s tick. |
+
+The fake-socket tests exist because congesting a real loopback socket on demand is not
+something you can do reliably, and a test that only passes when the machine is busy is worse
+than no test.
 
 ## What is deliberately absent
 
