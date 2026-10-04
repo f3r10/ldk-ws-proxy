@@ -11,13 +11,22 @@
       "default": "./dist/src/index.js"
     }
   },
-  "files": ["dist", "README.md"],
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build -w ldk-ws-proxy && tsc -p tsconfig.json && node dist/test/handshake.test.js",
+    "test": "npm run build -w ldk-ws-proxy && tsc -p tsconfig.json && node dist/test/handshake.test.js && node dist/test/backpressure.test.js",
     "peer": "tsc -p tsconfig.json && node dist/test/local_peer.js"
   },
-  "keywords": ["lightning", "bitcoin", "ldk", "websocket", "browser"],
+  "keywords": [
+    "lightning",
+    "bitcoin",
+    "ldk",
+    "websocket",
+    "browser"
+  ],
   "license": "MIT OR Apache-2.0",
   "peerDependencies": {
     "lightningdevkit": "0.2.5-0"
