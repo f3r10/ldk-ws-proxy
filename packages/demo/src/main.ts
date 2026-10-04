@@ -1,6 +1,6 @@
 import * as ldk from "lightningdevkit";
 import wasm_url from "lightningdevkit/liblightningjs.wasm?url";
-import { WsLdkNet, minimal_peer_manager, proxy_url, type WsConnection } from "ldk-ws-descriptor";
+import { WsLdkNet, minimal_peer_manager, proxy_url, type PeerLink } from "ldk-ws-descriptor";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const log_el = $<HTMLPreElement>("log");
@@ -47,51 +47,74 @@ $<HTMLOutputElement>("our-node-id").textContent = hex(node.node_id);
 log("our node id is " + hex(node.node_id));
 connect_btn.disabled = false;
 
-let conn: WsConnection | undefined;
+let link: PeerLink | undefined;
+const status_el = $<HTMLOutputElement>("link-status");
+
+function set_status(text: string, kind: string): void {
+	status_el.textContent = text;
+	status_el.className = kind;
+}
 
 connect_btn.addEventListener("click", async () => {
 	connect_btn.disabled = true;
+	let peer_id: Uint8Array;
 	try {
-		const peer_id = from_hex($<HTMLInputElement>("pubkey").value);
-		const base = $<HTMLInputElement>("proxy").value.trim();
-		const host = $<HTMLInputElement>("host").value.trim();
-		const port = Number($<HTMLInputElement>("port").value);
-		// A Core Lightning node started with bind-addr=ws:... speaks the peer protocol over
-		// WebSocket itself, so there is nothing to proxy.
-		const url = $<HTMLInputElement>("direct").checked ? base : proxy_url(base, host, port);
+		peer_id = from_hex($<HTMLInputElement>("pubkey").value);
+	} catch (err) {
+		log("bad input: " + (err instanceof Error ? err.message : String(err)));
+		connect_btn.disabled = false;
+		return;
+	}
 
-		log("connecting to " + url);
-		conn = await net.connect_peer(url, peer_id);
-		disconnect_btn.disabled = false;
+	const base = $<HTMLInputElement>("proxy").value.trim();
+	const host = $<HTMLInputElement>("host").value.trim();
+	const port = Number($<HTMLInputElement>("port").value);
+	// A Core Lightning node started with bind-addr=ws:... speaks the peer protocol over
+	// WebSocket itself, so there is nothing to proxy.
+	const url = $<HTMLInputElement>("direct").checked ? base : proxy_url(base, host, port);
+
+	// connect_link, not connect_peer: it reopens the socket by itself when the proxy is
+	// restarted or the network drops, which is the normal condition for a browser tab.
+	link = net.connect_link(url, peer_id, {});
+	disconnect_btn.disabled = false;
+	log("connecting to " + url);
+
+	link.on_state = (state, detail) => {
+		log("link " + state + ": " + detail);
+		if (state === "connected") set_status("connected", "ok");
+		else if (state === "waiting") set_status("reconnecting (attempt " + link!.attempts + ")", "warn");
+		else if (state === "connecting") set_status("connecting…", "warn");
+		else set_status("closed", "off");
+	};
+
+	try {
+		await link.wait_connected();
 		await net.await_peer(peer_id);
 		log("handshake and init exchange complete with " + hex(peer_id));
 	} catch (err) {
 		log("connect failed: " + (err instanceof Error ? err.message : String(err)));
-		if (conn !== undefined && conn.close_code !== undefined) {
-			log("socket closed with code " + conn.close_code + " " + (conn.close_reason ?? ""));
-		}
-		connect_btn.disabled = false;
 	}
 });
 
 disconnect_btn.addEventListener("click", () => {
-	conn?.close();
+	link?.close();
+	link = undefined;
 	disconnect_btn.disabled = true;
 	connect_btn.disabled = false;
+	set_status("not connected", "off");
 });
 
 setInterval(() => {
 	const peers = node.peer_manager.list_peers();
+	const queued = link?.connection?.queued_inbound_bytes ?? 0;
+	if (queued > 0) log("inbound queue holding " + queued + " bytes (LDK asked us to pause)");
+
 	peers_el.innerHTML = "";
 	if (peers.length == 0) {
 		const li = document.createElement("li");
 		li.className = "empty";
-		li.textContent = "none";
+		li.textContent = link === undefined ? "none" : "none (link " + link.state + ")";
 		peers_el.appendChild(li);
-		if (conn !== undefined && !conn.is_connected) {
-			disconnect_btn.disabled = true;
-			connect_btn.disabled = false;
-		}
 		return;
 	}
 	for (const peer of peers) {

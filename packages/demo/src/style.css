@@ -41,6 +41,10 @@ input[type="text"], input:not([type]) {
 	border: 1px solid var(--line); background: var(--bg); color: var(--fg);
 }
 output { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; word-break: break-all; }
+output.ok { color: var(--ok); }
+output.warn { color: #c98a00; }
+output.off { color: var(--muted); }
+output.ok::before, output.warn::before, output.off::before { content: "● "; }
 .actions { display: flex; align-items: center; gap: 12px; margin-top: 16px; }
 .actions .direct { font-size: 13px; margin-right: auto; }
 button {
