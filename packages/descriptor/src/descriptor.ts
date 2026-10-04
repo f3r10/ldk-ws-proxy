@@ -39,6 +39,15 @@ export interface WsLdkNetOptions {
 	 * seconds". Default 10s.
 	 */
 	timer_tick_ms?: number;
+	/**
+	 * Drop the connection if more than this many bytes pile up unread while LDK has asked us
+	 * to stop reading. Default 8 MiB.
+	 *
+	 * WebSocket has no pause primitive, so honouring LDK's read pause means queueing in JS.
+	 * A peer that keeps sending while refusing to read is the exact DoS the pause exists to
+	 * prevent, and an unbounded queue would hand it to them anyway.
+	 */
+	max_inbound_bytes?: number;
 	/** WebSocket constructor to use. Defaults to the global one. */
 	web_socket_impl?: new (url: string) => WsLike;
 	/** Optional trace hook. */
@@ -63,8 +72,19 @@ export class WsConnection {
 	public readonly descriptor: ldk.SocketDescriptor;
 
 	private readonly inbound: Uint8Array[] = [];
+	private inbound_bytes = 0;
 	/** LDK asked us to stop feeding it data (`send_data` with `continue_read` unset). */
 	private read_paused = false;
+	/** Called once when the connection goes away, for whatever reason. */
+	public on_disconnect: (() => void) | undefined;
+	/**
+	 * Whether the PeerManager has been told about this descriptor yet.
+	 *
+	 * A socket that never opens - a proxy that is down, say - produces a descriptor LDK has
+	 * never seen, and `socket_disconnected` on an unknown descriptor is a pointless trip
+	 * into WASM.
+	 */
+	private registered = false;
 	/** We returned a short count from `send_data` and owe a `write_buffer_space_avail`. */
 	private write_blocked = false;
 	private drain_timer: ReturnType<typeof setInterval> | undefined;
@@ -117,6 +137,15 @@ export class WsConnection {
 				return;
 			}
 			this.inbound.push(bytes);
+			this.inbound_bytes += bytes.length;
+			if (this.inbound_bytes > this.opts.max_inbound_bytes) {
+				// The peer is ignoring the backpressure LDK asked for. Hanging up is the only
+				// move a WebSocket gives us, and it beats growing the queue until the tab dies.
+				this.opts.log("descriptor " + this.id + ": inbound queue over " +
+					this.opts.max_inbound_bytes + " bytes while paused, disconnecting");
+				this.ws.close();
+				return;
+			}
 			this.pump();
 		};
 		ws.onclose = (ev: any) => {
@@ -173,6 +202,7 @@ export class WsConnection {
 	private pump(): void {
 		while (!this.disconnected && !this.read_paused && this.inbound.length > 0) {
 			const chunk = this.inbound.shift()!;
+			this.inbound_bytes -= chunk.length;
 			const res = this.pm.read_event(this.descriptor, chunk);
 			if (!res.is_ok()) {
 				this.opts.log("descriptor " + this.id + ": read_event failed, disconnecting");
@@ -216,10 +246,16 @@ export class WsConnection {
 		this.disconnected = true;
 		this.stop_drain_poll();
 		this.inbound.length = 0;
-		this.opts.log("descriptor " + this.id + ": socket " + reason + ", disconnecting peer");
-		this.pm.socket_disconnected(this.descriptor);
-		this.pm.process_events();
+		this.inbound_bytes = 0;
+		if (this.registered) {
+			this.opts.log("descriptor " + this.id + ": socket " + reason + ", disconnecting peer");
+			this.pm.socket_disconnected(this.descriptor);
+			this.pm.process_events();
+		} else {
+			this.opts.log("descriptor " + this.id + ": socket " + reason + " before it opened");
+		}
 		this.net._forget(this);
+		if (this.on_disconnect !== undefined) this.on_disconnect();
 	}
 
 	/** Close the socket from the application side. */
@@ -231,9 +267,20 @@ export class WsConnection {
 		return !this.disconnected;
 	}
 
+	/** Bytes queued because LDK asked us to stop reading. Observability, and tests. */
+	public get queued_inbound_bytes(): number {
+		return this.inbound_bytes;
+	}
+
+	/** True while we are returning short counts from `send_data`. */
+	public get is_write_blocked(): boolean {
+		return this.write_blocked;
+	}
+
 	/** Send the handshake bytes LDK handed us when the connection was registered. */
 	/* @internal */
 	_send_initial(bytes: Uint8Array): void {
+		this.registered = true;
 		const sent = this.send_data(bytes, true);
 		if (sent != bytes.length) {
 			// Only possible if the socket died between open and here.
@@ -263,6 +310,7 @@ export class WsLdkNet {
 			low_water_mark: options.low_water_mark ?? 256 * 1024,
 			drain_poll_ms: options.drain_poll_ms ?? 50,
 			timer_tick_ms: options.timer_tick_ms ?? 10_000,
+			max_inbound_bytes: options.max_inbound_bytes ?? 8 * 1024 * 1024,
 			web_socket_impl: options.web_socket_impl ?? global_ws,
 			log: options.log ?? (() => {}),
 		};
