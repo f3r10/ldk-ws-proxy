@@ -18,6 +18,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "npm run build -w ldk-ws-proxy && tsc -p tsconfig.json && node dist/test/handshake.test.js && node dist/test/backpressure.test.js && node dist/test/reconnect.test.js",
+    "soak": "npm run build -w ldk-ws-proxy && tsc -p tsconfig.json && node dist/test/soak.test.js",
     "peer": "tsc -p tsconfig.json && node dist/test/local_peer.js"
   },
   "keywords": [
