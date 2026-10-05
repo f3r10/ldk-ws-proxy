@@ -7,12 +7,13 @@ a browser: Lightning peers speak a binary protocol over raw TCP, and browsers ca
 sockets. The bindings' own README says you will need to bring your own bridge from
 `SocketDescriptor` to a WebSocket proxy. This is that bridge, plus the proxy, plus a demo.
 
-**Status: M2 reached.** A browser tab completes the BOLT-8 handshake and the `init` exchange
-with a Lightning peer, and stays connected through ping/pong. Backpressure, reconnection and
-anything involving channels are not done - see [Milestones](#milestones).
+**Status: M4 reached.** A browser tab completes the BOLT-8 handshake with a real Lightning
+peer, survives the proxy being killed under it, opens a channel, settles payments both ways,
+and keeps its channel across a page reload. Verified against LND 0.20 in Polar - see
+[Milestones](#milestones).
 
-**Regtest only. Never point this at mainnet.** There is no persistence yet, and in Lightning
-losing `ChannelMonitor` state loses money.
+**Regtest only. Never point this at mainnet.** Channel state lives in one browser profile's
+IndexedDB with no backup behind it, and in Lightning losing `ChannelMonitor` state loses money.
 
 ```
 packages/descriptor/   the SocketDescriptor, the queue logic, connect_peer   (npm: ldk-ws-descriptor)
@@ -42,6 +43,13 @@ For channels and payments (M4) you also need a regtest bitcoind - see
 
 ```sh
 npm run chain                           # bitcoind-backed, CORS-enabled, on :3002
+```
+
+There is also a tutorial prototype - theory on one side, an editor on the other, and a real
+node in a Web Worker that grades what you write against live protocol state:
+
+```sh
+npm run tutorial                        # http://localhost:5174
 ```
 
 Paste the peer's node id into the page and press Connect. The log fills with:
