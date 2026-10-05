@@ -5,13 +5,15 @@
   "workspaces": [
     "packages/descriptor",
     "packages/proxy",
+    "packages/node",
     "packages/demo"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test -w ldk-ws-descriptor",
     "proxy": "npm run start -w ldk-ws-proxy",
-    "demo": "npm run dev -w ldk-ws-demo"
+    "demo": "npm run dev -w ldk-ws-demo",
+    "chain": "npm run chain -w ldk-ws-proxy"
   },
   "license": "MIT OR Apache-2.0",
   "devDependencies": {
