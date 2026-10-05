@@ -19,6 +19,7 @@ packages/descriptor/   the SocketDescriptor, the queue logic, connect_peer   (np
 packages/proxy/        WebSocket-to-TCP relay, and a regtest chain backend   (npm: ldk-ws-proxy)
 packages/node/         a full node: chain sync, persistence, channels
 packages/demo/         Vite app - the thing you screenshot
+packages/tutorial/     side-by-side lesson: theory, an editor, and a real node
 docs/ARCHITECTURE.md   how the pieces fit
 docs/GOTCHAS.md        every surprise, with how it was found
 ```

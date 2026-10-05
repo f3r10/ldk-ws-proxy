@@ -351,6 +351,10 @@ Do not try to interoperate with LND. Do not build the sender side beyond what LD
 
 ## Task 5 — Side-by-side tutorial: theory and a live node
 
+**Status: prototyped and working.** `packages/tutorial` is lesson one, end to end. Read this
+section for the design, but the open questions below are now answered - see "What the spike
+settled".
+
 **Size:** 2-3 days for the first lesson; the curriculum is open-ended.
 
 ### Why
@@ -408,12 +412,30 @@ One lesson, end to end: theory pane, editor, run button, and one assertion again
 protocol state ("you are connected and have exchanged `init`"). If the feel is wrong you have
 lost two evenings, not a month.
 
-### Risks
+### What the spike settled
 
-Re-running costs a node: learner code holding LDK references leaks across runs, and recreating
-the worker each run means re-instantiating 14 MB of WASM. Measure this early - it shapes the
-whole feel. First load is 4.5 MB gzipped. Safari and iOS need checking (IndexedDB quirks, WASM
-memory limits).
+- **LDK runs in a Web Worker.** This was the assumption everything rested on. It holds.
+- **Re-running is cheap, and the risk below was wrong.** A run does not reload the WASM: the
+  worker keeps it and only rebuilds the node object graph, measured at **5ms**. The 14 MB init
+  (a few seconds) is paid once per worker, and again only if a worker is terminated. Teardown
+  between runs is `net.stop()` plus dropping the session.
+- **A runaway loop is survivable.** `while (true) {}` hangs the worker, not the page. Stop
+  terminates it and a fresh worker is ready a moment later; a 30s timeout does the same
+  automatically.
+- **Grading on live protocol state works, and fails correctly.** Code that opens the socket
+  without awaiting the peer gets three red crosses while the wire pane shows the handshake
+  happening - which is the lesson made visible.
+
+### Remaining risks
+
+- **Assertions run when the learner's function returns**, so the contract is "when your code
+  returns, the peer is connected". A learner who writes `connect_link(...)` then
+  `await sleep(3000)` passes without understanding. That is a false positive, and arguably
+  they did satisfy the contract - but lesson design has to account for it.
+- First load is 4.5 MB gzipped.
+- Safari and iOS still need checking (IndexedDB quirks, WASM memory limits).
+- Editor is CodeMirror. Monaco fed the `lightningdevkit` `.d.mts` files is the upgrade and the
+  real differentiator; the spike did not need it to answer the question.
 
 ---
 
