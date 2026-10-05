@@ -10,32 +10,28 @@
 		<main>
 			<h1>A Lightning node in a browser tab</h1>
 			<p class="sub">
-				LDK's <code>PeerManager</code> running in WASM, reaching a real Lightning peer through a
-				<code>SocketDescriptor</code> backed by a WebSocket. Regtest only.
+				LDK running in WASM, reaching a real Lightning peer through a
+				<code>SocketDescriptor</code> backed by a WebSocket, with channel state in IndexedDB.
+				<strong>Regtest only.</strong>
 			</p>
 
 			<section class="card">
-				<div class="row">
-					<label>Our node id</label>
-					<output id="our-node-id">loading WASM…</output>
-				</div>
-				<div class="row">
-					<label>Link</label>
-					<output id="link-status" class="off">not connected</output>
-				</div>
+				<div class="row"><label>Our node id</label><output id="our-node-id">loading WASM…</output></div>
+				<div class="row"><label>Link</label><output id="link-status" class="off">not connected</output></div>
+				<div class="row"><label>Chain</label><output id="chain-status" class="off">not synced</output></div>
 			</section>
 
 			<section class="card">
+				<h2>Peer</h2>
 				<div class="grid">
 					<label for="proxy">Proxy base URL</label>
 					<input id="proxy" value="ws://127.0.0.1:3001" />
-
+					<label for="chain-url">Chain proxy URL</label>
+					<input id="chain-url" value="http://127.0.0.1:3002" />
 					<label for="host">Peer host</label>
 					<input id="host" value="127.0.0.1" />
-
 					<label for="port">Peer port</label>
 					<input id="port" value="9735" />
-
 					<label for="pubkey">Peer node id</label>
 					<input id="pubkey" placeholder="03abc… (66 hex chars)" />
 				</div>
@@ -43,6 +39,39 @@
 					<label class="direct"><input type="checkbox" id="direct" /> connect directly (peer speaks WebSocket)</label>
 					<button id="connect" disabled>Connect</button>
 					<button id="disconnect" disabled>Disconnect</button>
+				</div>
+			</section>
+
+			<section class="card">
+				<h2>Channels</h2>
+				<ul id="channels"><li class="empty">none</li></ul>
+				<div class="grid">
+					<label for="channel-sats">Capacity (sat)</label>
+					<input id="channel-sats" value="1000000" />
+					<label for="push-msat">Push to peer (msat)</label>
+					<input id="push-msat" value="300000000" />
+				</div>
+				<div class="actions">
+					<span class="direct note">funded by regtest bitcoind through the chain proxy</span>
+					<button id="open-channel" disabled>Open channel</button>
+					<button id="mine" disabled>Mine 6 blocks</button>
+				</div>
+			</section>
+
+			<section class="card">
+				<h2>Payments</h2>
+				<div class="grid">
+					<label for="invoice-msat">Receive (msat)</label>
+					<input id="invoice-msat" value="20000000" />
+					<label for="invoice-out">Our invoice</label>
+					<textarea id="invoice-out" rows="3" readonly placeholder="press Create invoice"></textarea>
+					<label for="invoice-in">Pay invoice</label>
+					<textarea id="invoice-in" rows="3" placeholder="lnbcrt…"></textarea>
+				</div>
+				<div class="actions">
+					<span class="direct note" id="payment-status">no payments yet</span>
+					<button id="create-invoice" disabled>Create invoice</button>
+					<button id="pay" disabled>Pay</button>
 				</div>
 			</section>
 

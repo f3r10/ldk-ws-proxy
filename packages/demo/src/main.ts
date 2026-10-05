@@ -1,12 +1,12 @@
 import * as ldk from "lightningdevkit";
 import wasm_url from "lightningdevkit/liblightningjs.wasm?url";
-import { WsLdkNet, minimal_peer_manager, proxy_url, type PeerLink } from "ldk-ws-descriptor";
+import { WsLdkNet, proxy_url, type PeerLink } from "ldk-ws-descriptor";
+import { start_full_node, ChainClient, IndexedDbKv, type FullNode } from "ldk-ws-node";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const log_el = $<HTMLPreElement>("log");
 const peers_el = $<HTMLUListElement>("peers");
-const connect_btn = $<HTMLButtonElement>("connect");
-const disconnect_btn = $<HTMLButtonElement>("disconnect");
+const channels_el = $<HTMLUListElement>("channels");
 
 function log(line: string): void {
 	const stamp = new Date().toISOString().slice(11, 19);
@@ -14,9 +14,7 @@ function log(line: string): void {
 	log_el.scrollTop = log_el.scrollHeight;
 }
 
-function hex(bytes: Uint8Array): string {
-	return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-}
+const hex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 
 function from_hex(s: string): Uint8Array {
 	const clean = s.trim().toLowerCase();
@@ -26,102 +24,180 @@ function from_hex(s: string): Uint8Array {
 	return out;
 }
 
+function status(id: string, text: string, kind: string): void {
+	const el = $<HTMLOutputElement>(id);
+	el.textContent = text;
+	el.className = kind;
+}
+
 log("loading WASM (~14 MB, ~4.5 MB over the wire gzipped)…");
 await ldk.initializeWasmWebFetch(wasm_url);
 log("WASM ready");
 
-// A fresh identity per page load. Real persistence is M4, and is consensus-critical:
-// losing ChannelMonitor state loses money. Regtest only.
-const seed = new Uint8Array(32);
-crypto.getRandomValues(seed);
+// One identity per browser profile, kept in IndexedDB alongside the channel state. Losing it
+// loses the channels, which on anything but regtest means losing money.
+const kv = new IndexedDbKv();
+let seed = await kv.get("seed");
+if (seed === undefined) {
+	seed = new Uint8Array(32);
+	crypto.getRandomValues(seed);
+	await kv.put("seed", seed);
+	log("generated a new node identity");
+} else {
+	log("reusing the node identity already in IndexedDB");
+}
 
-// Everything the node needs stays reachable from this object for the lifetime of the page.
-// The bindings free Rust-side memory once JS drops the last reference to an object.
-const node = minimal_peer_manager(seed, (line) => {
-	if (line.includes("peer_handler")) log(line);
-});
+const chain = new ChainClient($<HTMLInputElement>("chain-url").value.trim());
+let node: FullNode;
+try {
+	node = await start_full_node({
+		seed, chain, kv,
+		log,
+		on_event: (name, detail) => {
+			log("event " + name + (detail ? ": " + detail : ""));
+			if (name === "PaymentClaimed") $("payment-status").textContent = "received " + detail;
+			if (name === "PaymentSent") $("payment-status").textContent = "payment settled";
+			if (name === "PaymentFailed") $("payment-status").textContent = "payment failed";
+			if (name === "ChannelReady") $("payment-status").textContent = "channel ready";
+		},
+	});
+} catch (err) {
+	log("could not start the node: " + (err instanceof Error ? err.message : String(err)));
+	log("is the chain proxy running? npm run chain");
+	throw err;
+}
+
+// Everything the node needs stays reachable from here for the lifetime of the page: the
+// bindings free Rust-side memory as soon as JS drops the last reference.
 const net = new WsLdkNet(node.peer_manager, { log });
-(globalThis as any).ldk_node = { node, net }; // also handy from the console
+(globalThis as any).ldk_node = { node, net, chain, kv };
 
 $<HTMLOutputElement>("our-node-id").textContent = hex(node.node_id);
 log("our node id is " + hex(node.node_id));
-connect_btn.disabled = false;
-
-let link: PeerLink | undefined;
-const status_el = $<HTMLOutputElement>("link-status");
-
-function set_status(text: string, kind: string): void {
-	status_el.textContent = text;
-	status_el.className = kind;
+for (const id of ["connect", "open-channel", "mine", "create-invoice", "pay"]) {
+	$<HTMLButtonElement>(id).disabled = false;
 }
 
-connect_btn.addEventListener("click", async () => {
-	connect_btn.disabled = true;
+let link: PeerLink | undefined;
+
+$("connect").addEventListener("click", async () => {
+	$<HTMLButtonElement>("connect").disabled = true;
 	let peer_id: Uint8Array;
 	try {
 		peer_id = from_hex($<HTMLInputElement>("pubkey").value);
 	} catch (err) {
 		log("bad input: " + (err instanceof Error ? err.message : String(err)));
-		connect_btn.disabled = false;
+		$<HTMLButtonElement>("connect").disabled = false;
 		return;
 	}
-
 	const base = $<HTMLInputElement>("proxy").value.trim();
 	const host = $<HTMLInputElement>("host").value.trim();
 	const port = Number($<HTMLInputElement>("port").value);
-	// A Core Lightning node started with bind-addr=ws:... speaks the peer protocol over
-	// WebSocket itself, so there is nothing to proxy.
 	const url = $<HTMLInputElement>("direct").checked ? base : proxy_url(base, host, port);
 
-	// connect_link, not connect_peer: it reopens the socket by itself when the proxy is
-	// restarted or the network drops, which is the normal condition for a browser tab.
 	link = net.connect_link(url, peer_id, {});
-	disconnect_btn.disabled = false;
+	$<HTMLButtonElement>("disconnect").disabled = false;
 	log("connecting to " + url);
-
 	link.on_state = (state, detail) => {
 		log("link " + state + ": " + detail);
-		if (state === "connected") set_status("connected", "ok");
-		else if (state === "waiting") set_status("reconnecting (attempt " + link!.attempts + ")", "warn");
-		else if (state === "connecting") set_status("connecting…", "warn");
-		else set_status("closed", "off");
+		if (state === "connected") status("link-status", "connected", "ok");
+		else if (state === "waiting") status("link-status", "reconnecting (attempt " + link!.attempts + ")", "warn");
+		else if (state === "connecting") status("link-status", "connecting…", "warn");
+		else status("link-status", "closed", "off");
 	};
-
 	try {
 		await link.wait_connected();
 		await net.await_peer(peer_id);
-		log("handshake and init exchange complete with " + hex(peer_id));
+		log("handshake and init exchange complete");
 	} catch (err) {
 		log("connect failed: " + (err instanceof Error ? err.message : String(err)));
 	}
 });
 
-disconnect_btn.addEventListener("click", () => {
+$("disconnect").addEventListener("click", () => {
 	link?.close();
 	link = undefined;
-	disconnect_btn.disabled = true;
-	connect_btn.disabled = false;
-	set_status("not connected", "off");
+	$<HTMLButtonElement>("disconnect").disabled = true;
+	$<HTMLButtonElement>("connect").disabled = false;
+	status("link-status", "not connected", "off");
+});
+
+$("open-channel").addEventListener("click", () => {
+	try {
+		const peer_id = from_hex($<HTMLInputElement>("pubkey").value);
+		const sats = Number($<HTMLInputElement>("channel-sats").value);
+		const push = Number($<HTMLInputElement>("push-msat").value);
+		log("opening a " + sats + " sat channel (pushing " + push + " msat)");
+		node.open_channel(peer_id, sats, push);
+	} catch (err) {
+		log("could not open a channel: " + (err instanceof Error ? err.message : String(err)));
+	}
+});
+
+// Regtest only, and the honest version of "wait for confirmations".
+$("mine").addEventListener("click", () => {
+	void chain.mine(6).then(
+		(hashes) => log("mined " + hashes.length + " blocks"),
+		(err: Error) => log("could not mine: " + err.message),
+	);
+});
+
+$("create-invoice").addEventListener("click", () => {
+	try {
+		const msat = BigInt($<HTMLInputElement>("invoice-msat").value);
+		const invoice = node.create_invoice(msat, "paid into a browser tab");
+		$<HTMLTextAreaElement>("invoice-out").value = invoice;
+		log("created an invoice for " + msat + " msat");
+	} catch (err) {
+		log("could not create an invoice: " + (err instanceof Error ? err.message : String(err)));
+	}
+});
+
+$("pay").addEventListener("click", () => {
+	try {
+		const invoice = $<HTMLTextAreaElement>("invoice-in").value.trim();
+		if (invoice.length == 0) return;
+		$("payment-status").textContent = "sending…";
+		node.pay_invoice(invoice);
+		log("payment sent to LDK");
+	} catch (err) {
+		$("payment-status").textContent = "failed to send";
+		log("could not pay: " + (err instanceof Error ? err.message : String(err)));
+	}
 });
 
 setInterval(() => {
-	const peers = node.peer_manager.list_peers();
-	const queued = link?.connection?.queued_inbound_bytes ?? 0;
-	if (queued > 0) log("inbound queue holding " + queued + " bytes (LDK asked us to pause)");
+	status("chain-status", "height " + node.chain_sync.height, "ok");
 
+	const peers = node.peer_manager.list_peers();
 	peers_el.innerHTML = "";
 	if (peers.length == 0) {
-		const li = document.createElement("li");
-		li.className = "empty";
-		li.textContent = link === undefined ? "none" : "none (link " + link.state + ")";
-		peers_el.appendChild(li);
+		peers_el.innerHTML = '<li class="empty">' +
+			(link === undefined ? "none" : "none (link " + link.state + ")") + "</li>";
+	} else {
+		for (const peer of peers) {
+			const li = document.createElement("li");
+			li.className = "connected";
+			li.textContent = hex(peer.get_counterparty_node_id());
+			peers_el.appendChild(li);
+		}
+	}
+
+	const channels = node.channel_manager.list_channels();
+	channels_el.innerHTML = "";
+	if (channels.length == 0) {
+		channels_el.innerHTML = '<li class="empty">none</li>';
 		return;
 	}
-	for (const peer of peers) {
+	for (const channel of channels) {
 		const li = document.createElement("li");
-		li.className = "connected";
-		li.textContent = hex(peer.get_counterparty_node_id()) +
-			(peer.get_is_inbound_connection() ? " (inbound)" : " (outbound)");
-		peers_el.appendChild(li);
+		const usable = channel.get_is_usable();
+		li.className = usable ? "connected" : "pending";
+		const ours = channel.get_outbound_capacity_msat();
+		const theirs = channel.get_inbound_capacity_msat();
+		li.textContent = (usable ? "ready" : "pending") + " · " +
+			channel.get_channel_value_satoshis() + " sat · ours " + ours +
+			" msat · theirs " + theirs + " msat · " + hex(channel.get_counterparty().get_node_id()).slice(0, 16) + "…";
+		channels_el.appendChild(li);
 	}
 }, 1000);

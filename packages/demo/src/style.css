@@ -62,3 +62,16 @@ pre#log {
 	margin: 0; max-height: 320px; overflow: auto; white-space: pre-wrap; word-break: break-word;
 	font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted);
 }
+
+#channels { list-style: none; margin: 0 0 16px; padding: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; }
+#channels li { padding: 6px 0; border-bottom: 1px solid var(--line); word-break: break-all; }
+#channels li:last-child { border-bottom: 0; }
+#channels li.connected::before { content: "● "; color: var(--ok); }
+#channels li.pending::before { content: "◌ "; color: #c98a00; }
+#channels li.empty { color: var(--muted); font-family: inherit; }
+textarea {
+	font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px;
+	padding: 7px 9px; border-radius: 6px; border: 1px solid var(--line);
+	background: var(--bg); color: var(--fg); resize: vertical; width: 100%; box-sizing: border-box;
+}
+.note { color: var(--muted); font-size: 12px; }
