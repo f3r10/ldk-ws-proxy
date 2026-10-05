@@ -92,7 +92,9 @@ self.onmessage = async (ev: MessageEvent<ToWorker>) => {
 		await ldk.initializeWasmWebFetch(wasm_url);
 		initialised = true;
 		log("LDK ready, in a Web Worker (" + Math.round(performance.now() - started) + "ms)");
-		post({ type: "ready", ldk_version: ldk.get_ldk_java_bindings_version?.() ?? "0.2.5-0" });
+		// The bindings print the exact LDK commit to the console during init; there is no
+		// exported accessor for it, so do not pretend there is.
+		post({ type: "ready", ldk_version: "0.2.5-0" });
 		return;
 	}
 
