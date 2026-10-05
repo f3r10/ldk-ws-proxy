@@ -6,14 +6,16 @@
     "packages/descriptor",
     "packages/proxy",
     "packages/node",
-    "packages/demo"
+    "packages/demo",
+    "packages/tutorial"
   ],
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "test": "npm run test -w ldk-ws-descriptor",
     "proxy": "npm run start -w ldk-ws-proxy",
     "demo": "npm run dev -w ldk-ws-demo",
-    "chain": "npm run chain -w ldk-ws-proxy"
+    "chain": "npm run chain -w ldk-ws-proxy",
+    "tutorial": "npm run dev -w ldk-ws-tutorial"
   },
   "license": "MIT OR Apache-2.0",
   "devDependencies": {

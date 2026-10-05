@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>Lightning, in your browser — Lesson 1</title>
+		<link rel="stylesheet" href="./src/style.css" />
+	</head>
+	<body>
+		<header>
+			<div class="brand">Lightning, in your browser</div>
+			<div class="lesson-nav"><span class="current">1 · Connect to a peer</span><span class="next">2 · Read the init message →</span></div>
+			<div class="status"><span id="worker-status" class="pill off">worker idle</span></div>
+		</header>
+
+		<main>
+			<!-- theory -->
+			<section class="theory">
+				<h1>Connect to a Lightning peer</h1>
+
+				<p class="lede">
+					Lightning nodes talk to each other over raw TCP, encrypted with a handshake called
+					BOLT&nbsp;8. Your browser cannot open a TCP socket. By the end of this lesson your
+					browser will be a Lightning peer anyway.
+				</p>
+
+				<h2>Why this is awkward</h2>
+				<p>
+					A browser can open HTTP, WebSocket and WebRTC connections, and nothing else. A
+					Lightning peer listens on TCP port 9735 and expects a byte stream. So something has
+					to sit in the middle and copy bytes between a WebSocket and a TCP socket — that is
+					all the proxy in this lesson does. After the handshake it is carrying ciphertext it
+					cannot read.
+				</p>
+
+				<h2>What happens on the wire</h2>
+				<p>
+					The connection opens with <strong>Noise_XK</strong>, a three-message handshake from
+					BOLT&nbsp;8. You send 50 bytes, the peer replies with 50, you send 66. At the end
+					both sides share keys, and — this is the part that matters — <em>the peer has proved
+					it owns the public key you dialled</em>. There is no certificate authority anywhere
+					in Lightning.
+				</p>
+				<p>
+					Then both sides send <code>init</code>, listing the features they support as a
+					bitfield. Some bits are <em>required</em>: if your peer requires something you do not
+					understand, it hangs up. Watch the wire pane when you run your code — you will see
+					your <code>init</code> go out and theirs come back.
+				</p>
+
+				<h2>Your job</h2>
+				<p>
+					LDK is already running in this page: a <code>PeerManager</code> compiled to WASM,
+					inside a Web Worker. It knows the protocol. What it does not have is a way to reach
+					the network — that is <code>WsLdkNet</code>, the WebSocket transport, which is
+					already wired up for you as <code>net</code>.
+				</p>
+				<p>Write code that opens the connection and waits until the peer is really connected.</p>
+
+				<h3>What you have</h3>
+				<table class="api">
+					<tr><td><code>net.connect_link(url, peer_id)</code></td><td>opens a connection that reconnects itself; returns a link</td></tr>
+					<tr><td><code>link.wait_connected()</code></td><td>resolves when the <em>socket</em> is open</td></tr>
+					<tr><td><code>net.await_peer(peer_id)</code></td><td>resolves when the <em>peer</em> is connected — handshake and <code>init</code> both done</td></tr>
+					<tr><td><code>peer_url</code></td><td>the peer's address, through the proxy</td></tr>
+					<tr><td><code>peer_id</code></td><td>the peer's public key, 33 bytes</td></tr>
+					<tr><td><code>log(line)</code></td><td>prints to the output pane</td></tr>
+				</table>
+
+				<p class="aside">
+					Those last two are a real distinction, not pedantry. A socket can be open to a proxy
+					that is about to refuse your target — the connection looks fine for a moment, then
+					closes. Waiting for the <em>peer</em> is what tells you Lightning is actually working.
+				</p>
+			</section>
+
+			<!-- workbench -->
+			<section class="workbench">
+				<div class="pane editor-pane">
+					<div class="pane-head">
+						<span>your code</span>
+						<div>
+							<button id="reveal" class="link">reveal solution</button>
+							<button id="stop" class="secondary" disabled>Stop</button>
+							<button id="run" disabled>Run</button>
+						</div>
+					</div>
+					<div id="editor"></div>
+				</div>
+
+				<div class="pane">
+					<div class="pane-head"><span>checks</span></div>
+					<ul id="checks"><li class="empty">run your code to see whether it worked</li></ul>
+				</div>
+
+				<div class="pane">
+					<div class="pane-head"><span>on the wire</span><span class="hint">LDK's own log</span></div>
+					<pre id="wire" class="empty">nothing yet</pre>
+				</div>
+
+				<div class="pane">
+					<div class="pane-head"><span>output</span></div>
+					<pre id="console"></pre>
+				</div>
+
+				<details class="config">
+					<summary>peer settings</summary>
+					<div class="grid">
+						<label for="proxy">proxy</label><input id="proxy" value="ws://127.0.0.1:3001" />
+						<label for="host">peer host</label><input id="host" value="127.0.0.1" />
+						<label for="port">peer port</label><input id="port" value="9735" />
+						<label for="peer">peer node id</label><input id="peer" value="03cd81f81ab3b8cdf9d49ce0f7fae8de12973be6d81e0db8bda8e87802c8ccb7ff" />
+					</div>
+				</details>
+			</section>
+		</main>
+
+		<script type="module" src="./src/main.ts"></script>
+	</body>
+</html>
