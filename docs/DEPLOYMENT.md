@@ -68,11 +68,54 @@ does not need them - checked: no `pthread`, no atomics, no shared memory, just
 `wasi_snapshot_preview1` and the bindings' own callbacks. Adding them would break embedding and
 third-party resources for nothing.
 
-### What it costs
+### What the payload actually is
 
-A cold visitor downloads ~4.5 MB (WASM) + ~600 KB (app and worker JS, gzipped). On Vercel's
-free tier's 100 GB/month that is roughly 20,000 cold loads; returning visitors cost nothing
-because of the cache header above. The page itself is static and can sit on any CDN.
+Measured on the production build:
+
+| | raw | gzip | brotli |
+|---|---|---|---|
+| `liblightningjs.wasm` | 14.56 MB | 4.49 MB | **3.26 MB** |
+| worker JS (LDK bindings + our code) | 1.96 MB | 0.20 MB | 0.14 MB |
+| page JS (CodeMirror + UI) | 0.51 MB | 0.17 MB | 0.14 MB |
+| **total** | **17.03 MB** | 4.86 MB | **3.55 MB** |
+
+**Serve brotli.** It is 27% smaller than gzip on this file - 1.2 MB saved per cold visitor, for
+a config flag. Vercel and Cloudflare do it automatically; Caddy needs the file precompressed, so
+generate a `.wasm.br` at build time and let it serve that.
+
+Where the size comes from: **87.5% of the module is the code section** (12.74 MB of compiled
+machine code), 9.4% data, and there is no name/debug section at all - it is already stripped.
+So there is no cheap win hiding in there. It is big because it is all of rust-lightning plus C
+bindings for 1,624 types, and the bindings export everything, so nothing can be dead-code
+eliminated across the FFI boundary. Shrinking it means building a trimmed bindings set
+upstream, which is a real project.
+
+**Compiling it is not the problem.** `WebAssembly.compile` on the full 14.5 MB takes **11-15ms**
+(measured with a cache-busting URL each time, so no HTTP cache and no compiled-code cache) -
+V8 compiles lazily and tiers up in the background. Instantiating takes ~5ms. On a desktop the
+entire cost is the download.
+
+| connection | time to pull 3.55 MB |
+|---|---|
+| fibre, 100 Mbps | 0.3s |
+| typical home, 25 Mbps | 1.1s |
+| 4G, 10 Mbps | 2.8s |
+| slow 4G, 3 Mbps | 9.5s |
+| 3G, 1.5 Mbps | 19s |
+
+So: fine on a laptop, noticeable on a phone, bad on a bad connection. Three things follow.
+
+1. **The cache header is the whole game.** A returning visitor pays nothing; only the first
+   load hurts. Version the filename and cache it forever.
+2. **Load it lazily.** The theory pane should render immediately and the worker should start
+   fetching WASM in the background, so a reader is reading while it downloads. Do not block
+   first paint on it. Our prototype starts the worker on page load, which is right.
+3. **Say what is happening.** A 19-second blank box is a bug; a 19-second progress line that
+   says "loading a Lightning node (3.5 MB)" is a feature. The prototype already logs this;
+   a deployed version should show progress against `Content-Length`.
+
+On Vercel's free 100 GB/month that is roughly 28,000 cold loads at the brotli size. The page
+itself is static and can sit on any CDN.
 
 ---
 
@@ -139,5 +182,7 @@ problem; see [CURRICULUM.md](CURRICULUM.md).
    else.
 3. Point the lesson's default peer settings at `wss://your-peer` and the real node id.
 4. Deploy the page as a static/Next build with the WASM in `public/` and the cache header set.
-5. Load it in a private window on a phone. That is where the 4.5 MB download and any
+5. Check brotli is actually being served (`curl -H 'Accept-Encoding: br' -I`). It is 1.2 MB
+   per visitor and the easiest thing on this list to get wrong silently.
+6. Load it in a private window on a phone. That is where the 3.5 MB download and any
    Safari/iOS WASM problem will show up, and both are better found by you than by a reader.
