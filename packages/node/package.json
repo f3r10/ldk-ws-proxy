@@ -14,7 +14,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "npm run build -w ldk-ws-proxy && tsc -p tsconfig.json && node dist/test/payment.test.js"
+    "test": "npm run build -w ldk-ws-proxy && tsc -p tsconfig.json && node dist/test/payment.test.js && node dist/test/restart.test.js"
   },
   "license": "MIT OR Apache-2.0",
   "peerDependencies": {
