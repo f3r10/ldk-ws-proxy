@@ -161,6 +161,12 @@ WASM BigInt (Chrome 85+, Firefox 78+, Safari 14.1+). The WASM payload is 4.5 MB 
 - [x] **M4** - chain sync, IndexedDB persistence, open a channel, settle a payment
 - [ ] **M5** - publish to npm, write it up
 
+Beyond the milestones, [docs/FUTURE-WORK.md](docs/FUTURE-WORK.md) specs six follow-on tasks in
+enough detail to hand to someone (or something) with no memory of this repo: Esplora/`Confirm`
+chain sync, VSS storage, LSPS2 JIT channels, async payments, a tutorial page that runs a real
+node in the reader's browser, and an integration with
+[f3r10/lightning-ecommerce](https://github.com/f3r10/lightning-ecommerce).
+
 What M3 is ticked on: the water marks, `write_buffer_space_avail` and the read pause are
 exercised by tests that actually block and resume them; reconnect is demonstrated by killing
 the proxy under a live connection, in Node and in the browser against LND; and the idle
