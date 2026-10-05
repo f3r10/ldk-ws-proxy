@@ -353,7 +353,7 @@ Do not try to interoperate with LND. Do not build the sender side beyond what LD
 
 **Status: prototyped and working.** `packages/tutorial` is lesson one, end to end. Read this
 section for the design, but the open questions below are now answered - see "What the spike
-settled".
+settled". The full lesson list lives in [CURRICULUM.md](CURRICULUM.md).
 
 **Size:** 2-3 days for the first lesson; the curriculum is open-ended.
 

@@ -22,6 +22,7 @@ packages/node/         a full node: chain sync, persistence, channels
 packages/demo/         Vite app - the thing you screenshot
 packages/tutorial/     side-by-side lesson: theory, an editor, and a real node
 docs/ARCHITECTURE.md   how the pieces fit
+docs/CURRICULUM.md     the eighteen lessons the tutorial is going to teach
 docs/GOTCHAS.md        every surprise, with how it was found
 ```
 
