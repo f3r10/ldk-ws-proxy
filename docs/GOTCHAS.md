@@ -186,7 +186,58 @@ hands that same denial of service straight back - the tab dies instead of the bu
 queue is capped and the connection dropped when a peer pushes past it while paused; hanging
 up is the only backpressure primitive a WebSocket has.
 
-## 21. `tsc` output paths and `package.json` main
+## 21. `Persist` has a fourth method, and the docs describe the older path
+
+`PersistInterface` is `persist_new_channel`, `update_persisted_channel`, `archive_persisted_channel`
+and `get_and_clear_completed_updates`. Implement the first three and LDK dies inside WASM with
+`arg.get_and_clear_completed_updates is not a function` - a JS TypeError surfacing through a
+Rust call stack, which is not where you will look first.
+
+It matters more than a missing method: it *is* the async persistence path. The doc comments on
+the other three describe calling `ChainMonitor::channel_monitor_updated` yourself, which is the
+older mechanism. In 0.2 you return `InProgress` and queue the completion; LDK drains the queue.
+
+## 22. Async persistence is not optional, and the shortcut is expensive
+
+`Persist` is synchronous; IndexedDB is not. Returning `Completed` and writing in the background
+means LDK proceeds on state it believes is durable, and a tab closed in that window loses the
+update. That is not a crash, it is a lost channel balance: the counterparty can later broadcast
+a state you no longer have the data to punish.
+
+Return `InProgress` (the channel stalls), write, then report completion. A failed write is
+simply never reported - the channel stays stalled, which is the safe outcome.
+
+## 23. Read everything out of a callback's arguments before you await
+
+Objects handed to a binding callback are not guaranteed to outlive the callback. `monitor.write()`,
+`monitor.channel_id()`, `update.get_update_id()` all have to happen before the async write
+starts, not in the continuation.
+
+## 24. LDK 0.2 will not remind you to forward HTLCs
+
+There is no `Event_PendingHTLCsForwardable` any more. Something has to call
+`process_pending_htlc_forwards()` on a timer or payments sit in the node doing nothing, with no
+error anywhere. Easy to misread as a routing or channel problem.
+
+## 25. Restoring is ordered, and half a node is not a node
+
+Monitors must be read before the `ChannelManager`, which cannot be deserialised without them -
+it cross-checks its view of each channel against the monitor's. Restored monitors then have to
+be given to the `ChainMonitor` with `watch_channel`, or nothing is watching the chain for them.
+Sync resumes from the manager's own best block, not the tip.
+
+If storage has monitors but no manager, refuse to start. Starting fresh there looks like a
+working node that has forgotten a channel which still exists on the chain and on the
+counterparty's disk. Ours hit exactly this case, from storage written before the manager was
+being persisted, and refused - which is how it should feel.
+
+## 26. A restored channel is "pending" until the peer reconnects
+
+After a reload the channel reappears immediately but is not usable until the peer is connected
+again and `channel_reestablish` has been exchanged. The UI showing "pending" for a few seconds
+after a restart is correct, not a restore failure.
+
+## 27. `tsc` output paths and `package.json` main
 
 With `rootDir: "."` and both `src` and `test` in `include`, output lands at `dist/src/...`.
 Vite fails with "Failed to resolve entry for package" until `main`/`exports` match. Obvious in

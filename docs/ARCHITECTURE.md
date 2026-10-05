@@ -88,13 +88,47 @@ The fake-socket tests exist because congesting a real loopback socket on demand 
 something you can do reliably, and a test that only passes when the machine is busy is worse
 than no test.
 
-## What is deliberately absent
+## The node (M4)
 
-No `ChannelManager`, `ChainMonitor`, `NetworkGraph`, chain sync, or persistence. None of them
-sit on the path between a browser tab and a connected peer, and leaving them out is what keeps
-the milestone honest. They arrive with M4, along with the hard parts: Esplora sync and
-IndexedDB persistence of `ChannelMonitor` state, which is consensus-critical - losing it loses
-money.
+`packages/descriptor` is still only transport. `packages/node` is the node that sits on top of
+it, and it needs two things a browser does not have: a chain, and durable storage.
+
+```
+  browser tab                                  server
+ ┌──────────────────────────────┐        ┌───────────────────┐
+ │ ChannelManager ─┐            │        │ ldk-ws-proxy      │  ws → tcp → peer
+ │ ChainMonitor ───┼─ Listen ◄──┼── /chain/block/:hash ──────┤
+ │   │             │            │  http  │ ldk-chain-proxy   │  bitcoind RPC
+ │   └─ Persist ───┼─► IndexedDB│        │   /chain/*  read  │
+ │                 │            │        │   /dev/*    wallet│  ← regtest only
+ │ WsLdkNet ───────┘            │   ws   └───────────────────┘
+ └──────────────────────────────┘
+```
+
+**Chain sync** feeds whole blocks to everything implementing `Listen`. That is the simplest
+thing that is correct on regtest, and unusable on mainnet - where `Confirm` plus an Esplora
+backend is the answer, and where the bindings' lack of `lightning-transaction-sync` becomes a
+real problem rather than an inconvenience. Reorgs walk back to the fork point, which LDK 0.2
+wants as a single `blocks_disconnected` call.
+
+**Persistence** is the part where mistakes cost money. `Persist` is synchronous and IndexedDB
+is not, so writes return `InProgress` - LDK stalls the channel - and completion is reported
+once the write lands, through the queue LDK drains in `get_and_clear_completed_updates`. A
+failed write is never reported, and the channel stays stalled. On startup monitors are read
+first, the `ChannelManager` second (it cannot be deserialised without them), monitors are
+re-registered with `watch_channel`, and sync resumes from the manager's best block.
+
+**The funding transaction** is built and signed by regtest bitcoind, because a browser has no
+on-chain wallet. That one endpoint is the only part of the node that a real deployment could
+not keep; everything else is what any LDK node does.
+
+## What is still absent
+
+No gossip and no routing table: a node with one channel to one peer routes nothing, and syncing
+the graph would be the most expensive thing a browser could do. No on-chain wallet, so
+`SpendableOutputs` events are logged rather than swept. No backup: IndexedDB is a single
+browser profile's local storage, and on anything but regtest channel state needs more than
+that.
 
 ## The proxy's trust position
 
