@@ -1,6 +1,6 @@
 import * as ldk from "lightningdevkit";
 import { ChainClient, ChainSync, to_hex } from "./chain.js";
-import { KvPersist } from "./persist.js";
+import { KvPersist, MONITOR_PREFIX } from "./persist.js";
 import type { KvStore } from "./kv.js";
 
 export const MANAGER_KEY = "manager";
@@ -110,15 +110,69 @@ export async function start_full_node(options: FullNodeOptions): Promise<FullNod
 	const message_router = ldk.DefaultMessageRouter.constructor_new(network_graph, entropy_source);
 
 	const tip = await options.chain.tip();
-	log("starting at height " + tip.height + " (" + tip.hash.slice(0, 16) + "…)");
-	const best_block = ldk.BestBlock.constructor_new(reverse(hex_bytes(tip.hash)), tip.height);
 	const config = ldk.UserConfig.constructor_default();
-	const channel_manager = ldk.ChannelManager.constructor_new(
-		fee_estimator, chain_monitor.as_Watch(), broadcaster, router.as_Router(),
-		message_router.as_MessageRouter(), logger, entropy_source, node_signer, signer_provider,
-		config, ldk.ChainParameters.constructor_new(network, best_block),
-		Math.floor(Date.now() / 1000),
-	);
+
+	// Restore anything a previous session left behind. Monitors first: the ChannelManager
+	// cannot be deserialised without them, because it checks its view of each channel against
+	// the monitor's and refuses to come up believing something the monitor contradicts.
+	const monitors: ldk.ChannelMonitor[] = [];
+	for (const key of await options.kv.list(MONITOR_PREFIX)) {
+		const bytes = await options.kv.get(key);
+		if (bytes === undefined) continue;
+		const read = ldk.UtilMethods.constructor_C2Tuple_ThirtyTwoBytesChannelMonitorZ_read(
+			bytes, entropy_source, signer_provider);
+		if (!read.is_ok()) {
+			throw new Error("could not deserialise " + key + "; refusing to start without it");
+		}
+		monitors.push((read as ldk.Result_C2Tuple_ThirtyTwoBytesChannelMonitorZDecodeErrorZ_OK).res.get_b());
+		log("restored " + key + " (" + bytes.length + " bytes)");
+	}
+
+	const stored_manager = await options.kv.get(MANAGER_KEY);
+	let channel_manager: ldk.ChannelManager;
+	let start_height: number;
+	let start_hash: string;
+
+	if (stored_manager !== undefined && monitors.length > 0) {
+		const read = ldk.UtilMethods.constructor_C2Tuple_ThirtyTwoBytesChannelManagerZ_read(
+			stored_manager, entropy_source, node_signer, signer_provider, fee_estimator,
+			chain_monitor.as_Watch(), broadcaster, router.as_Router(), message_router.as_MessageRouter(),
+			logger, config, monitors);
+		if (!read.is_ok()) throw new Error("could not deserialise the ChannelManager");
+		channel_manager = (read as ldk.Result_C2Tuple_ThirtyTwoBytesChannelManagerZDecodeErrorZ_OK).res.get_b();
+
+		// Every restored monitor has to be handed back to the ChainMonitor, or nothing is
+		// watching the chain on its behalf.
+		for (const monitor of monitors) {
+			const res = chain_monitor.as_Watch().watch_channel(monitor.channel_id(), monitor);
+			if (!res.is_ok()) throw new Error("ChainMonitor refused a restored monitor");
+		}
+
+		// Resume from where the ChannelManager left off, not from the tip: the blocks in
+		// between are exactly the ones it needs to catch up on.
+		const best = channel_manager.current_best_block();
+		start_height = best.get_height();
+		start_hash = to_hex(reverse(best.get_block_hash()));
+		log("restored a node at height " + start_height + " with " + monitors.length +
+			" monitor(s); replaying to " + tip.height);
+	} else {
+		if (stored_manager !== undefined || monitors.length > 0) {
+			// Half a node is not a node. Starting fresh here would mean ignoring channels
+			// that still exist on the chain and on the counterparty's disk.
+			throw new Error("storage has " + monitors.length + " monitor(s) and " +
+				(stored_manager === undefined ? "no" : "a") + " ChannelManager; refusing to start");
+		}
+		const best_block = ldk.BestBlock.constructor_new(reverse(hex_bytes(tip.hash)), tip.height);
+		channel_manager = ldk.ChannelManager.constructor_new(
+			fee_estimator, chain_monitor.as_Watch(), broadcaster, router.as_Router(),
+			message_router.as_MessageRouter(), logger, entropy_source, node_signer, signer_provider,
+			config, ldk.ChainParameters.constructor_new(network, best_block),
+			Math.floor(Date.now() / 1000),
+		);
+		start_height = tip.height;
+		start_hash = tip.hash;
+		log("starting a new node at height " + tip.height + " (" + tip.hash.slice(0, 16) + "…)");
+	}
 
 	const ignoring = ldk.IgnoringMessageHandler.constructor_new();
 	const peer_manager = ldk.PeerManager.constructor_new(
@@ -139,7 +193,7 @@ export async function start_full_node(options: FullNodeOptions): Promise<FullNod
 	const chain_sync = new ChainSync(
 		options.chain,
 		[chain_monitor.as_Listen(), channel_manager.as_Listen()],
-		tip.height, tip.hash,
+		start_height, start_hash,
 		{ poll_ms: options.chain_poll_ms, log },
 	);
 
@@ -155,7 +209,28 @@ export async function start_full_node(options: FullNodeOptions): Promise<FullNod
 		},
 	} as ldk.EventHandlerInterface);
 
+	// LDK asks for the ChannelManager to be persisted after anything that changes it. Doing
+	// it on every event would serialise the whole thing far too often, so this debounces:
+	// an event schedules a write, and writes do not overlap.
+	let manager_dirty = false;
+	let manager_writing = false;
+	async function persist_manager_soon(): Promise<void> {
+		manager_dirty = true;
+		if (manager_writing) return;
+		manager_writing = true;
+		while (manager_dirty) {
+			manager_dirty = false;
+			try {
+				await options.kv.put(MANAGER_KEY, channel_manager.write());
+			} catch (err) {
+				log("could not persist the ChannelManager: " + (err instanceof Error ? err.message : String(err)));
+			}
+		}
+		manager_writing = false;
+	}
+
 	function handle(event: ldk.Event): void {
+		void persist_manager_soon();
 		if (event instanceof ldk.Event_FundingGenerationReady) {
 			// A browser has no on-chain wallet, so the chain proxy builds and signs this.
 			// Everything else in this function is what a real node does; this one line is
