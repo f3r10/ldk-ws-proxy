@@ -3,13 +3,20 @@
   "version": "0.1.0",
   "description": "WebSocket-to-TCP relay so a browser can reach a Lightning peer",
   "type": "module",
-  "main": "dist/proxy.js",
-  "types": "dist/proxy.d.ts",
-  "bin": { "ldk-ws-proxy": "dist/cli.js" },
-  "files": ["dist", "README.md"],
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "ldk-ws-proxy": "dist/cli.js",
+    "ldk-chain-proxy": "dist/chain-cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "tsc -p tsconfig.json && node dist/cli.js"
+    "start": "tsc -p tsconfig.json && node dist/cli.js",
+    "chain": "tsc -p tsconfig.json && node dist/chain-cli.js"
   },
   "license": "MIT OR Apache-2.0",
   "dependencies": {
